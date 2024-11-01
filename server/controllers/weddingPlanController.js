@@ -1,8 +1,6 @@
-const { HfInference } = require('@huggingface/inference');
-const dotenv = require("dotenv");
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+const dotenv = require('dotenv');
 dotenv.config();
-
-const hf = new HfInference(process.env.HF_API_KEY);
 
 const generateWeddingPlan = async (req, res) => {
   const {
@@ -16,58 +14,79 @@ const generateWeddingPlan = async (req, res) => {
     weddingTheme,
     cateringType,
     accommodationNeeded,
-    transportationForGuests
+    transportationForGuests,
   } = req.body;
 
-  if (!weddingDate || !celebrationDays || !location || !noOfGuests || !budget || !entertainmentChoices || !ceremonyType || !weddingTheme || !cateringType) {
-    return res.status(400).json({ success: false, message: "All fields are required." });
+  // Validate input fields
+  if (
+    !weddingDate ||
+    !celebrationDays ||
+    !location ||
+    !noOfGuests ||
+    !budget ||
+    !entertainmentChoices.length ||
+    !ceremonyType ||
+    !weddingTheme ||
+    !cateringType ||
+    accommodationNeeded === '' ||
+    transportationForGuests === ''
+  ) {
+    return res.status(400).json({
+      success: false,
+      message: 'All fields are required.',
+    });
   }
 
   const prompt = `
-    You are a professional wedding planner. Please create a detailed 3-day wedding itinerary based on the following details:
-    
-    Wedding Date: ${weddingDate}
-    Celebration Days: ${celebrationDays}
-    Location: ${location}
-    Number of Guests: ${noOfGuests}
-    Budget: Rs. ${budget}
-    Entertainment: ${entertainmentChoices.join(", ")}
-    Ceremony Type: ${ceremonyType}
-    Wedding Theme: ${weddingTheme}
-    Catering: ${cateringType}
-    Accommodation Needed: ${accommodationNeeded}
-    Transportation for Guests: ${transportationForGuests}
+Create a comprehensive wedding itinerary based on the following details:
 
-    Please create a detailed itinerary (html) including:
+- Wedding Date: ${weddingDate}
+- Celebration Days: ${celebrationDays}
+- Location: ${location}
+- Number of Guests: ${noOfGuests}
+- Budget: ${budget}
+- Entertainment Choices: ${entertainmentChoices.join(', ')}
+- Ceremony Type: ${ceremonyType}
+- Wedding Theme: ${weddingTheme}
+- Catering Type: ${cateringType}
+- Accommodation Needed: ${accommodationNeeded ? 'Yes' : 'No'}
+- Transportation for Guests: ${transportationForGuests ? 'Yes' : 'No'}
 
-    1. Schedule of events for each day (morning, afternoon, evening)
-    2. Meal plans and catering details
-    3. Entertainment activities
-    4. Guest transportation arrangements
-    5. Venue setup for different events (e.g., ceremony, reception)
+The itinerary should include an overview, a day-by-day schedule, guest information, budget breakdown, catering details, entertainment schedule, and decor implementation in JSON format.
   `;
 
   try {
-    const response = await hf.textGeneration({
-      model: 'bigscience/bloom', // Switch to a more capable model
-      inputs: prompt,
-      parameters: {
-        max_new_tokens: 1000,  // Increased token limit for detailed response
-        temperature: 0.7,      // Adjust for creativity
-      }
+    const apiKey = process.env.GEMINI_API_KEY;
+    const genAI = new GoogleGenerativeAI(apiKey);
+
+    const model = await genAI.getGenerativeModel({
+      model: 'gemini-1.5-pro',
     });
 
-    const weddingPlan = response.generated_text;
+    const generationConfig = {
+      temperature: 1,
+      topP: 0.95,
+      topK: 64,
+      maxOutputTokens: 8192,
+      responseMimeType: 'application/json',
+    };
 
-    res.status(200).json({
+    const chatSession = model.startChat({
+      generationConfig,
+      history: [],
+    });
+
+    const result = await chatSession.sendMessage(prompt);
+
+    return res.status(200).json({
       success: true,
-      weddingPlan: weddingPlan.trim(),
+      data: result.response || 'No response received from the AI',
     });
   } catch (error) {
-    console.error("Error generating wedding plan:", error.message);
-    res.status(500).json({
+    console.error('Error generating wedding plan:', error);
+    return res.status(500).json({
       success: false,
-      message: "Failed to generate wedding plan. Please try again.",
+      message: 'Failed to generate wedding plan. Please try again.',
     });
   }
 };
